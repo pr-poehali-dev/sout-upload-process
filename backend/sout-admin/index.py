@@ -79,7 +79,8 @@ def handler(event: dict, context) -> dict:
     # GET /users — список пользователей
     if method == "GET" and path.endswith("users"):
         cur.execute(f"""
-            SELECT id, email, full_name, role, is_active, created_at, last_login_at
+            SELECT id, email, full_name, role, is_active, created_at, last_login_at,
+                   CASE WHEN qr_token IS NOT NULL THEN TRUE ELSE FALSE END AS has_qr
             FROM {SCHEMA}.sout_users ORDER BY created_at DESC
         """)
         rows = cur.fetchall()
@@ -90,6 +91,7 @@ def handler(event: dict, context) -> dict:
                 "is_active": r[4],
                 "created_at": str(r[5]),
                 "last_login_at": str(r[6]) if r[6] else None,
+                "has_qr": r[7],
             })
         cur.close(); conn.close()
         return resp(200, {"users": users})

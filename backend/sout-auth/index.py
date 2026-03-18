@@ -179,6 +179,68 @@ def handler(event: dict, context) -> dict:
         cur.close(); conn.close()
         return resp(200, {"session_id": session_id, "user": {"id": user_id, "email": email, "full_name": full_name, "role": role}})
 
+    # POST /qr-login — вход по QR-токену (сканирование)
+    if action == "qr-login":
+        qr_token = body.get("qr_token", "").strip()
+        if not qr_token:
+            cur.close(); conn.close()
+            return resp(400, {"error": "QR-токен обязателен"})
+        cur.execute(
+            f"SELECT id, email, full_name, role, is_active FROM {SCHEMA}.sout_users WHERE qr_token = %s",
+            (qr_token,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(401, {"error": "Недействительный QR-код"})
+        user_id, email, full_name, role, is_active = row
+        if not is_active:
+            cur.close(); conn.close()
+            return resp(403, {"error": "Аккаунт заблокирован"})
+        session_id = secrets.token_hex(32)
+        cur.execute(f"INSERT INTO {SCHEMA}.sout_sessions (id, user_id) VALUES (%s, %s)", (session_id, user_id))
+        cur.execute(f"UPDATE {SCHEMA}.sout_users SET last_login_at = NOW() WHERE id = %s", (user_id,))
+        conn.commit()
+        cur.close(); conn.close()
+        return resp(200, {"session_id": session_id, "user": {"id": user_id, "email": email, "full_name": full_name, "role": role}})
+
+    # POST /qr-generate — генерация/обновление QR-токена для пользователя (только admin)
+    if action == "qr-generate":
+        session_id = (event.get("headers") or {}).get("X-Session-Id", "")
+        caller = get_session_user(conn, session_id)
+        if not caller or caller[3] != "admin":
+            cur.close(); conn.close()
+            return resp(403, {"error": "Только администратор может генерировать QR-коды"})
+        target_user_id = body.get("user_id")
+        if not target_user_id:
+            cur.close(); conn.close()
+            return resp(400, {"error": "user_id обязателен"})
+        new_qr = secrets.token_urlsafe(32)
+        cur.execute(
+            f"UPDATE {SCHEMA}.sout_users SET qr_token = %s WHERE id = %s RETURNING email, full_name",
+            (new_qr, target_user_id)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "Пользователь не найден"})
+        conn.commit()
+        cur.close(); conn.close()
+        return resp(200, {"qr_token": new_qr, "email": row[0], "full_name": row[1]})
+
+    # POST /qr-revoke — отозвать QR-токен (только admin)
+    if action == "qr-revoke":
+        session_id = (event.get("headers") or {}).get("X-Session-Id", "")
+        caller = get_session_user(conn, session_id)
+        if not caller or caller[3] != "admin":
+            cur.close(); conn.close()
+            return resp(403, {"error": "Только администратор"})
+        target_user_id = body.get("user_id")
+        cur.execute(f"UPDATE {SCHEMA}.sout_users SET qr_token = NULL WHERE id = %s", (target_user_id,))
+        conn.commit()
+        cur.close(); conn.close()
+        return resp(200, {"ok": True})
+
     # POST /change-password
     if action == "change-password":
         session_id = (event.get("headers") or {}).get("X-Session-Id", "")

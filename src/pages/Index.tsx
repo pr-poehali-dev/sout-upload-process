@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import * as XLSX from "xlsx";
+import { QRCodeSVG } from "qrcode.react";
+import QrScanner from "@/components/QrScanner";
 
 // ─── API URLs ────────────────────────────────────────────────────────────────
 const API = {
@@ -94,6 +96,9 @@ function LoginScreen({ onLogin }: { onLogin: (user: User, sid: string) => void }
   const [needSetPwd, setNeedSetPwd] = useState(false);
   const [newPwd, setNewPwd]     = useState("");
   const [newPwd2, setNewPwd2]   = useState("");
+  const [loginMode, setLoginMode] = useState<"password"|"qr">("password");
+  const [showScanner, setShowScanner] = useState(false);
+  const [qrScanning, setQrScanning]   = useState(false);
 
   const doLogin = async () => {
     setError(""); setLoading(true);
@@ -110,6 +115,24 @@ function LoginScreen({ onLogin }: { onLogin: (user: User, sid: string) => void }
       onLogin(data.user, data.session_id);
     } catch { setError("Ошибка сети"); }
     setLoading(false);
+  };
+
+  const doQrLogin = async (token: string) => {
+    setShowScanner(false);
+    setQrScanning(true);
+    setError("");
+    try {
+      const res = await fetch(`${API.auth}/qr-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qr_token: token }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "QR-код не распознан"); setQrScanning(false); return; }
+      localStorage.setItem("avesta_sid", data.session_id);
+      onLogin(data.user, data.session_id);
+    } catch { setError("Ошибка сети"); }
+    setQrScanning(false);
   };
 
   const doSetPassword = async () => {
@@ -132,6 +155,8 @@ function LoginScreen({ onLogin }: { onLogin: (user: User, sid: string) => void }
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--navy-deep)" }}>
+      {showScanner && <QrScanner onScan={doQrLogin} onClose={() => setShowScanner(false)} />}
+
       {/* Background grid pattern */}
       <div className="absolute inset-0 opacity-5" style={{
         backgroundImage: "linear-gradient(rgba(200,149,42,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(200,149,42,0.3) 1px, transparent 1px)",
@@ -154,43 +179,105 @@ function LoginScreen({ onLogin }: { onLogin: (user: User, sid: string) => void }
         <div className="glass-card p-8">
           {!needSetPwd ? (
             <>
-              <h2 className="font-heading font-semibold text-lg mb-6 text-center" style={{ color: "var(--text-primary)" }}>
+              <h2 className="font-heading font-semibold text-lg mb-5 text-center" style={{ color: "var(--text-primary)" }}>
                 Вход в систему
               </h2>
+
+              {/* Mode toggle */}
+              <div className="flex rounded-lg p-1 mb-5" style={{ background: "rgba(42,64,96,0.3)" }}>
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-all"
+                  style={{
+                    background: loginMode === "password" ? "rgba(200,149,42,0.15)" : "transparent",
+                    color: loginMode === "password" ? "var(--gold-light)" : "var(--text-secondary)",
+                    border: loginMode === "password" ? "1px solid rgba(200,149,42,0.3)" : "1px solid transparent",
+                  }}
+                  onClick={() => setLoginMode("password")}>
+                  <Icon name="KeyRound" size={14} fallback="Key" />
+                  Пароль
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-all"
+                  style={{
+                    background: loginMode === "qr" ? "rgba(200,149,42,0.15)" : "transparent",
+                    color: loginMode === "qr" ? "var(--gold-light)" : "var(--text-secondary)",
+                    border: loginMode === "qr" ? "1px solid rgba(200,149,42,0.3)" : "1px solid transparent",
+                  }}
+                  onClick={() => setLoginMode("qr")}>
+                  <Icon name="QrCode" size={14} fallback="Scan" />
+                  QR-код
+                </button>
+              </div>
+
               {error && (
                 <div className="mb-4 p-3 rounded flex items-center gap-2 text-sm"
                   style={{ background: "rgba(192,57,43,0.12)", border: "1px solid rgba(192,57,43,0.3)", color: "#E74C3C" }}>
                   <Icon name="AlertCircle" size={14} fallback="Alert" />{error}
                 </div>
               )}
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs mb-1.5 block" style={{ color: "var(--text-dim)" }}>Email</label>
-                  <input
-                    className="w-full px-3 py-2.5 rounded text-sm outline-none"
-                    style={{ background: "rgba(42,64,96,0.4)", border: "1px solid rgba(42,64,96,0.6)", color: "var(--text-primary)" }}
-                    type="email" placeholder="example@company.ru"
-                    value={email} onChange={e => setEmail(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && doLogin()}
-                  />
+
+              {loginMode === "password" ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs mb-1.5 block" style={{ color: "var(--text-dim)" }}>Email</label>
+                    <input
+                      className="w-full px-3 py-2.5 rounded text-sm outline-none"
+                      style={{ background: "rgba(42,64,96,0.4)", border: "1px solid rgba(42,64,96,0.6)", color: "var(--text-primary)" }}
+                      type="email" placeholder="example@company.ru"
+                      value={email} onChange={e => setEmail(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && doLogin()}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs mb-1.5 block" style={{ color: "var(--text-dim)" }}>Пароль</label>
+                    <input
+                      className="w-full px-3 py-2.5 rounded text-sm outline-none"
+                      style={{ background: "rgba(42,64,96,0.4)", border: "1px solid rgba(42,64,96,0.6)", color: "var(--text-primary)" }}
+                      type="password" placeholder="••••••••"
+                      value={password} onChange={e => setPassword(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && doLogin()}
+                    />
+                  </div>
+                  <button
+                    className="w-full py-3 rounded font-semibold text-sm mt-2"
+                    style={{ background: "linear-gradient(90deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)", opacity: loading ? 0.7 : 1 }}
+                    onClick={doLogin} disabled={loading}>
+                    {loading ? "Вход..." : "Войти в систему"}
+                  </button>
                 </div>
-                <div>
-                  <label className="text-xs mb-1.5 block" style={{ color: "var(--text-dim)" }}>Пароль</label>
-                  <input
-                    className="w-full px-3 py-2.5 rounded text-sm outline-none"
-                    style={{ background: "rgba(42,64,96,0.4)", border: "1px solid rgba(42,64,96,0.6)", color: "var(--text-primary)" }}
-                    type="password" placeholder="••••••••"
-                    value={password} onChange={e => setPassword(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && doLogin()}
-                  />
+              ) : (
+                <div className="text-center">
+                  {/* QR mode */}
+                  <div className="py-4">
+                    <div className="w-20 h-20 rounded-xl flex items-center justify-center mx-auto mb-4"
+                      style={{ background: "rgba(200,149,42,0.08)", border: "2px dashed rgba(200,149,42,0.3)" }}>
+                      {qrScanning
+                        ? <Icon name="Loader" size={32} fallback="Loader" style={{ color: "var(--gold)" }} />
+                        : <Icon name="QrCode" size={36} fallback="Scan" style={{ color: "var(--gold)" }} />
+                      }
+                    </div>
+                    <p className="text-sm mb-1" style={{ color: "var(--text-primary)" }}>
+                      {qrScanning ? "Проверка QR-кода..." : "Войти по QR-коду"}
+                    </p>
+                    <p className="text-xs mb-6" style={{ color: "var(--text-dim)" }}>
+                      {qrScanning
+                        ? "Пожалуйста, подождите"
+                        : "Используйте QR-код, выданный администратором"}
+                    </p>
+
+                    {!qrScanning && (
+                      <button
+                        className="w-full py-3 rounded font-semibold text-sm flex items-center justify-center gap-3"
+                        style={{ background: "linear-gradient(90deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)" }}
+                        onClick={() => setShowScanner(true)}>
+                        <Icon name="Camera" size={18} fallback="Camera" />
+                        Открыть камеру и сканировать
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <button
-                  className="w-full py-3 rounded font-semibold text-sm mt-2"
-                  style={{ background: "linear-gradient(90deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)", opacity: loading ? 0.7 : 1 }}
-                  onClick={doLogin} disabled={loading}>
-                  {loading ? "Вход..." : "Войти в систему"}
-                </button>
-              </div>
+              )}
+
               <p className="text-xs text-center mt-4" style={{ color: "var(--text-dim)" }}>
                 Доступ ограничен. Обратитесь к администратору для получения учётных данных.
               </p>
@@ -253,6 +340,7 @@ function AdminPanel({ sessionId, currentUser }: { sessionId: string; currentUser
   const [clearConfirm, setClearConfirm] = useState<""|"results"|"history"|"all">("");
   const [newUser, setNewUser]   = useState({ email: "", full_name: "", password: "", role: "user" });
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  const [qrModal, setQrModal]   = useState<{ userId: number; name: string; token: string } | null>(null);
 
   const h = { "Content-Type": "application/json", "X-Session-Id": sessionId };
 
@@ -467,6 +555,7 @@ function AdminPanel({ sessionId, currentUser }: { sessionId: string; currentUser
                     <th style={{ textAlign: "left" }}>ФИО / Email</th>
                     <th style={{ textAlign: "left" }}>Роль</th>
                     <th style={{ textAlign: "left" }}>Статус</th>
+                    <th style={{ textAlign: "left" }}>QR-доступ</th>
                     <th style={{ textAlign: "left" }}>Последний вход</th>
                     <th style={{ textAlign: "left" }}>Действия</th>
                   </tr>
@@ -490,16 +579,62 @@ function AdminPanel({ sessionId, currentUser }: { sessionId: string; currentUser
                             {u.is_active ? "Активен" : "Заблокирован"}
                           </span>
                         </td>
+                        <td>
+                          {(u as AdminUser & { has_qr?: boolean }).has_qr ? (
+                            <span className="flex items-center gap-1.5 text-xs" style={{ color: "#2ECC71" }}>
+                              <Icon name="QrCode" size={12} fallback="Qr" />
+                              Активен
+                            </span>
+                          ) : (
+                            <span className="text-xs" style={{ color: "var(--text-dim)" }}>—</span>
+                          )}
+                        </td>
                         <td style={{ color: "var(--text-dim)", fontSize: "0.75rem" }}>
                           {u.last_login_at ? fmtDate(u.last_login_at) : "Никогда"}
                         </td>
                         <td>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <button onClick={() => setEditUser(editUser?.id === u.id ? null : u)}
                               className="text-xs px-2 py-1 rounded"
                               style={{ background: "rgba(200,149,42,0.1)", color: "var(--gold)" }}>
                               Изменить
                             </button>
+                            <button
+                              onClick={async () => {
+                                const res = await fetch(`${API.auth}/qr-generate`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
+                                  body: JSON.stringify({ user_id: u.id }),
+                                });
+                                const d = await res.json();
+                                if (res.ok) {
+                                  setQrModal({ userId: u.id, name: u.full_name || u.email, token: d.qr_token });
+                                  loadUsers();
+                                } else {
+                                  showMsg(d.error || "Ошибка генерации QR", "err");
+                                }
+                              }}
+                              className="text-xs px-2 py-1 rounded flex items-center gap-1"
+                              style={{ background: (u as AdminUser & { has_qr?: boolean }).has_qr ? "rgba(42,64,96,0.5)" : "rgba(200,149,42,0.12)", color: (u as AdminUser & { has_qr?: boolean }).has_qr ? "var(--text-secondary)" : "var(--gold)" }}>
+                              <Icon name="QrCode" size={11} fallback="Qr" />
+                              {(u as AdminUser & { has_qr?: boolean }).has_qr ? "Обновить QR" : "Создать QR"}
+                            </button>
+                            {(u as AdminUser & { has_qr?: boolean }).has_qr && (
+                              <button
+                                onClick={async () => {
+                                  await fetch(`${API.auth}/qr-revoke`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
+                                    body: JSON.stringify({ user_id: u.id }),
+                                  });
+                                  showMsg("QR-код отозван", "ok");
+                                  loadUsers();
+                                }}
+                                className="text-xs px-2 py-1 rounded"
+                                style={{ background: "rgba(192,57,43,0.08)", color: "#E74C3C" }}>
+                                Отозвать QR
+                              </button>
+                            )}
                             {u.id !== currentUser.id && (
                               <button
                                 onClick={() => updateUser(u.id, { is_active: !u.is_active })}
@@ -513,7 +648,7 @@ function AdminPanel({ sessionId, currentUser }: { sessionId: string; currentUser
                       </tr>
                       {editUser?.id === u.id && (
                         <tr key={`${u.id}-edit`}>
-                          <td colSpan={5} style={{ background: "rgba(42,64,96,0.12)", padding: 0 }}>
+                          <td colSpan={6} style={{ background: "rgba(42,64,96,0.12)", padding: 0 }}>
                             <div className="p-4 grid grid-cols-3 gap-3">
                               <div>
                                 <label className="text-xs mb-1 block" style={{ color: "var(--text-dim)" }}>ФИО</label>
@@ -670,6 +805,88 @@ function AdminPanel({ sessionId, currentUser }: { sessionId: string; currentUser
           ))}
         </div>
       )}
+
+      {/* ── QR Modal ── */}
+      {qrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.75)" }}>
+          <div className="relative rounded-xl overflow-hidden w-full max-w-sm mx-4"
+            style={{ background: "var(--navy-mid)", border: "1px solid rgba(200,149,42,0.4)" }}>
+            <div className="flex items-center justify-between px-5 py-4"
+              style={{ borderBottom: "1px solid rgba(42,64,96,0.5)" }}>
+              <div>
+                <p className="font-heading font-semibold text-sm" style={{ color: "var(--text-primary)" }}>QR-код доступа</p>
+                <p className="text-xs" style={{ color: "var(--text-dim)" }}>{qrModal.name}</p>
+              </div>
+              <button onClick={() => setQrModal(null)}
+                className="w-7 h-7 rounded flex items-center justify-center"
+                style={{ background: "rgba(42,64,96,0.5)", color: "var(--text-dim)" }}>
+                <Icon name="X" size={14} fallback="X" />
+              </button>
+            </div>
+            <div className="p-6 text-center">
+              {/* QR Code */}
+              <div className="inline-block p-4 rounded-xl mb-4"
+                style={{ background: "#fff" }}>
+                <QRCodeSVG
+                  value={qrModal.token}
+                  size={200}
+                  level="H"
+                  includeMargin={false}
+                  imageSettings={{
+                    src: "",
+                    x: undefined,
+                    y: undefined,
+                    height: 0,
+                    width: 0,
+                    excavate: false,
+                  }}
+                />
+              </div>
+              <p className="font-semibold text-sm mb-1" style={{ color: "var(--text-primary)" }}>{qrModal.name}</p>
+              <p className="text-xs mb-4" style={{ color: "var(--text-dim)" }}>
+                Этот QR-код — персональный ключ доступа. Не передавайте третьим лицам.
+              </p>
+              <div className="p-3 rounded-lg mb-4 font-mono text-xs break-all"
+                style={{ background: "rgba(42,64,96,0.4)", color: "var(--text-dim)", border: "1px solid rgba(42,64,96,0.6)" }}>
+                {qrModal.token}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 py-2.5 rounded text-sm font-medium flex items-center justify-center gap-2"
+                  style={{ background: "linear-gradient(90deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)" }}
+                  onClick={() => {
+                    // Скачать QR как PNG через canvas
+                    const svg = document.querySelector(".avesta-qr-download svg") as SVGElement;
+                    if (svg) {
+                      const blob = new Blob([svg.outerHTML], { type: "image/svg+xml" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url; a.download = `QR_АВЕСТА_${qrModal.name}.svg`; a.click();
+                      URL.revokeObjectURL(url);
+                    } else {
+                      // fallback: скопировать токен
+                      navigator.clipboard?.writeText(qrModal.token);
+                      showMsg("Токен скопирован в буфер", "ok");
+                    }
+                  }}>
+                  <Icon name="Download" size={14} fallback="Download" />
+                  Скачать QR
+                </button>
+                <button
+                  className="flex-1 py-2.5 rounded text-sm"
+                  style={{ background: "rgba(42,64,96,0.4)", color: "var(--text-secondary)" }}
+                  onClick={() => { navigator.clipboard?.writeText(qrModal.token); showMsg("Токен скопирован", "ok"); }}>
+                  Копировать токен
+                </button>
+              </div>
+              {/* Скрытый QR для скачивания */}
+              <div className="avesta-qr-download hidden">
+                <QRCodeSVG value={qrModal.token} size={400} level="H" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -687,7 +904,7 @@ export default function Index() {
   const [processing, setProcessing]   = useState(false);
   const [progress, setProgress]       = useState(0);
   const [progressStep, setProgressStep] = useState(0);
-  const [batchId, setBatchId]         = useState<number | null>(null);
+  const [, setBatchId]                = useState<number | null>(null);
   const [cards, setCards]             = useState<SoutCard[]>([]);
   const [batches, setBatches]         = useState<Batch[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
