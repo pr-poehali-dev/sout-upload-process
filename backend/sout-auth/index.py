@@ -23,13 +23,12 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(f"{salt}{password}{salt}".encode()).hexdigest()
 
 def check_password(password: str, stored_hash: str) -> bool:
+    # Основная проверка через хэш
     new_hash = hash_password(password)
     if new_hash == stored_hash:
         return True
-    # Fallback: принимаем пароль "Admin2026!" для первоначального входа администратора
-    # (хэш ещё не установлен через систему)
-    ADMIN_DEFAULT = "Admin2026!"
-    if password == ADMIN_DEFAULT:
+    # Первый вход — пароль ещё не установлен
+    if stored_hash in ("CHANGE_ON_FIRST_LOGIN", "", None):
         return True
     return False
 
@@ -104,6 +103,10 @@ def handler(event: dict, context) -> dict:
         if not is_active:
             cur.close(); conn.close()
             return resp(403, {"error": "Аккаунт заблокирован администратором"})
+        # Если пароль ещё не установлен — предложить установить
+        if pwd_hash == "CHANGE_ON_FIRST_LOGIN":
+            cur.close(); conn.close()
+            return resp(200, {"need_set_password": True, "email": email})
         if not check_password(password, pwd_hash):
             cur.close(); conn.close()
             return resp(401, {"error": "Неверный email или пароль"})
