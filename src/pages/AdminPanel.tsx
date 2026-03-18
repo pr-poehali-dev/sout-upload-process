@@ -254,7 +254,7 @@ export default function AdminPanel({ sessionId, currentUser, onBack, onLogout }:
               style={{ background: "linear-gradient(135deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)" }}>А</div>
             <span className="font-heading font-semibold text-sm" style={{ color: "var(--gold-light)" }}>АВЕСТА</span>
             <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(192,57,43,0.15)", color: "#E74C3C", border: "1px solid rgba(192,57,43,0.3)" }}>
-              ADMIN
+              ADMIN v2
             </span>
           </div>
         </div>
