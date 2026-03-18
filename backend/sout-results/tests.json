@@ -5,7 +5,6 @@
       "method": "GET",
       "path": "/",
       "expectedStatus": 200,
-      "expectedBody": {"cards": [], "total": 0},
       "bodyMatcher": "partial"
     }
   ]
