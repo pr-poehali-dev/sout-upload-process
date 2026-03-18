@@ -50,8 +50,19 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
     method = event.get("httpMethod", "GET")
-    path = event.get("path", "/").rstrip("/")
-    action = path.split("/")[-1] if "/" in path else path.lstrip("/")
+    body_raw = event.get("body") or "{}"
+    body_parsed = json.loads(body_raw)
+
+    # action берём из тела запроса (поле "action") — это надёжный способ для cloud functions
+    # Fallback: из пути (последний сегмент)
+    action = body_parsed.get("action", "")
+    if not action:
+        raw_path = event.get("path", "") or ""
+        segments = [s for s in raw_path.strip("/").split("/") if s]
+        action = segments[-1] if segments else ""
+    if not action:
+        params = event.get("queryStringParameters") or {}
+        action = params.get("action", "")
 
     conn = get_conn()
     cur = conn.cursor()
@@ -73,7 +84,7 @@ def handler(event: dict, context) -> dict:
         cur.close(); conn.close()
         return resp(200, {"id": user_id, "email": email, "full_name": full_name, "role": role})
 
-    body = json.loads(event.get("body") or "{}")
+    body = body_parsed
 
     # POST /login
     if action == "login":
