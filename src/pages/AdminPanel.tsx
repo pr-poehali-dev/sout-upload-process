@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import { QRCodeSVG } from "qrcode.react";
+import QrScanner from "@/components/QrScanner";
 
-const ADMIN_URL = "https://functions.poehali.dev/2aa77a7f-e362-4571-90dd-33ce54ee2b76";
+const ADMIN_URL  = "https://functions.poehali.dev/2aa77a7f-e362-4571-90dd-33ce54ee2b76";
+const AUTH_URL   = "https://functions.poehali.dev/80c3c284-fc4d-4c76-892a-f2886eaed21a";
 
-interface User { id: number; email: string; full_name: string; role: string; is_active: boolean; created_at: string; last_login_at: string | null; }
+interface User { id: number; email: string; full_name: string; role: string; is_active: boolean; created_at: string; last_login_at: string | null; has_qr?: boolean; }
 interface Stats { users_count: number; batches_count: number; cards_count: number; danger_count: number; safe_count: number; files_count: number; active_sessions: number; }
 interface CurrentUser { id: number; email: string; full_name: string; role: string; }
 
@@ -14,7 +17,7 @@ interface Props {
   onLogout: () => void;
 }
 
-type AdminTab = "stats" | "users" | "database" | "settings";
+type AdminTab = "stats" | "users" | "qrcodes" | "database" | "settings";
 
 function ConfirmModal({ title, message, danger, onConfirm, onCancel }: {
   title: string; message: string; danger?: boolean;
@@ -70,6 +73,16 @@ export default function AdminPanel({ sessionId, currentUser, onBack, onLogout }:
   const [editActive, setEditActive] = useState(true);
   const [editPass, setEditPass] = useState("");
 
+  // QR codes
+  const [qrUsers, setQrUsers] = useState<User[]>([]);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrModal, setQrModal] = useState<{ userId: number; name: string; email: string; token: string } | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanTarget, setScanTarget] = useState<User | null>(null); // пользователь для привязки отсканированного QR
+  const [manualToken, setManualToken] = useState(""); // ввод вручную
+  const [manualUserId, setManualUserId] = useState<number | null>(null);
+  const [assignMode, setAssignMode] = useState<"auto" | "camera" | "manual">("auto");
+
   const headers = { "Content-Type": "application/json", "X-Session-Id": sessionId };
 
   const showToast = (msg: string, type: "ok" | "err" = "ok") => {
@@ -98,10 +111,67 @@ export default function AdminPanel({ sessionId, currentUser, onBack, onLogout }:
     setLoading(false);
   }, [apiFetch]);
 
+  const loadQrUsers = useCallback(async () => {
+    setQrLoading(true);
+    const data = await apiFetch("users");
+    setQrUsers(data.users || []);
+    setQrLoading(false);
+  }, [apiFetch]);
+
+  const generateQr = async (userId: number, userName: string, userEmail: string) => {
+    const res = await fetch(AUTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
+      body: JSON.stringify({ action: "qr-generate", user_id: userId }),
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, "err"); return; }
+    setQrModal({ userId, name: userName, email: userEmail, token: data.qr_token });
+    loadQrUsers();
+    showToast(`QR-код для ${userName} создан`);
+  };
+
+  const assignExternalQr = async (userId: number, token: string, userName: string, userEmail: string) => {
+    // Записываем готовый токен напрямую через admin API
+    const res = await fetch(AUTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
+      body: JSON.stringify({ action: "qr-assign", user_id: userId, qr_token: token }),
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, "err"); return; }
+    setQrModal({ userId, name: userName, email: userEmail, token });
+    loadQrUsers();
+    showToast(`QR-код привязан к ${userName}`);
+    setScanTarget(null);
+    setManualToken("");
+    setManualUserId(null);
+  };
+
+  const revokeQr = async (userId: number, userName: string) => {
+    const res = await fetch(AUTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
+      body: JSON.stringify({ action: "qr-revoke", user_id: userId }),
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, "err"); return; }
+    showToast(`QR-код ${userName} отозван`);
+    loadQrUsers();
+  };
+
+  // Обработка сканирования — привязываем QR к выбранному пользователю
+  const handleScan = async (token: string) => {
+    setShowScanner(false);
+    if (!scanTarget) { showToast("Выберите пользователя перед сканированием", "err"); return; }
+    await assignExternalQr(scanTarget.id, token, scanTarget.full_name, scanTarget.email);
+  };
+
   useEffect(() => {
     if (tab === "stats") loadStats();
     if (tab === "users") loadUsers();
-  }, [tab, loadStats, loadUsers]);
+    if (tab === "qrcodes") loadQrUsers();
+  }, [tab, loadStats, loadUsers, loadQrUsers]);
 
   const createUser = async () => {
     setFormError("");
@@ -144,6 +214,7 @@ export default function AdminPanel({ sessionId, currentUser, onBack, onLogout }:
   const TABS: { id: AdminTab; label: string; icon: string }[] = [
     { id: "stats",    label: "Сводка",        icon: "BarChart3" },
     { id: "users",    label: "Пользователи",  icon: "Users" },
+    { id: "qrcodes",  label: "QR-коды",       icon: "QrCode" },
     { id: "database", label: "База данных",   icon: "Database" },
     { id: "settings", label: "Настройки",     icon: "Settings" },
   ];
@@ -473,6 +544,302 @@ export default function AdminPanel({ sessionId, currentUser, onBack, onLogout }:
                     </li>
                   ))}
                 </ul>
+              </div>
+            </div>
+          )}
+
+          {/* ===== QR CODES ===== */}
+          {tab === "qrcodes" && (
+            <div className="animate-fade-in">
+              {/* QR Scanner overlay */}
+              {showScanner && (
+                <QrScanner
+                  onScan={handleScan}
+                  onClose={() => setShowScanner(false)}
+                />
+              )}
+
+              {/* QR Card Modal — просмотр и печать */}
+              {qrModal && (
+                <>
+                  <style>{`@media print { body > *:not(#qr-print-card){display:none!important} #qr-print-card{display:flex!important} }`}</style>
+                  <div id="qr-print-card" style={{ display:"none", position:"fixed", inset:0, zIndex:9999, background:"#fff", alignItems:"center", justifyContent:"center" }}>
+                    <div style={{ border:"2px solid #1A3050", borderRadius:12, padding:"28px 36px", textAlign:"center", maxWidth:320, fontFamily:"Golos Text,sans-serif" }}>
+                      <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.15em", color:"#C8952A", marginBottom:3 }}>АВЕСТА · СОУТ</div>
+                      <div style={{ fontSize:9, color:"#777", marginBottom:18 }}>Персональная карточка доступа</div>
+                      <div style={{ background:"#fff", border:"1px solid #ddd", borderRadius:8, padding:14, display:"inline-block", marginBottom:14 }}>
+                        <QRCodeSVG value={qrModal.token} size={170} level="H" />
+                      </div>
+                      <div style={{ fontSize:13, fontWeight:700, color:"#0F2040", marginBottom:3 }}>{qrModal.name}</div>
+                      <div style={{ fontSize:10, color:"#666", marginBottom:4 }}>{qrModal.email}</div>
+                      <div style={{ fontSize:9, color:"#aaa", borderTop:"1px solid #eee", paddingTop:8 }}>Не передавайте третьим лицам · АВЕСТА v1.0</div>
+                    </div>
+                  </div>
+
+                  <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background:"rgba(0,0,0,0.75)" }}>
+                    <div className="glass-card overflow-hidden w-full max-w-sm mx-4">
+                      <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom:"1px solid rgba(42,64,96,0.5)" }}>
+                        <div>
+                          <p className="font-heading font-semibold text-sm" style={{ color:"var(--text-primary)" }}>QR-карточка доступа</p>
+                          <p className="text-xs" style={{ color:"var(--text-dim)" }}>{qrModal.name} · {qrModal.email}</p>
+                        </div>
+                        <button onClick={() => setQrModal(null)} className="w-7 h-7 rounded flex items-center justify-center" style={{ background:"rgba(42,64,96,0.5)", color:"var(--text-dim)" }}>
+                          <Icon name="X" size={14} fallback="X" />
+                        </button>
+                      </div>
+                      <div className="p-6 text-center">
+                        <div className="inline-block p-4 rounded-xl mb-4" style={{ background:"#fff" }}>
+                          <QRCodeSVG value={qrModal.token} size={185} level="H" />
+                        </div>
+                        <p className="font-semibold text-sm mb-0.5" style={{ color:"var(--text-primary)" }}>{qrModal.name}</p>
+                        <p className="text-xs mb-3" style={{ color:"var(--text-dim)" }}>{qrModal.email}</p>
+                        <div className="p-2.5 rounded font-mono text-xs break-all mb-4" style={{ background:"rgba(42,64,96,0.4)", color:"var(--text-dim)", border:"1px solid rgba(42,64,96,0.6)", fontSize:"0.63rem" }}>
+                          {qrModal.token}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button onClick={() => window.print()}
+                            className="py-2.5 rounded text-xs font-medium flex items-center justify-center gap-1.5"
+                            style={{ background:"linear-gradient(90deg, var(--gold), var(--gold-light))", color:"var(--navy-deep)" }}>
+                            <Icon name="Printer" size={13} fallback="Print" />Печать
+                          </button>
+                          <button onClick={() => {
+                            const svgEl = document.querySelector("#qr-print-card svg") as SVGElement;
+                            if (svgEl) {
+                              const blob = new Blob([svgEl.outerHTML], { type:"image/svg+xml" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url; a.download = `QR_${qrModal.name}.svg`; a.click();
+                              URL.revokeObjectURL(url);
+                            }
+                          }} className="py-2.5 rounded text-xs font-medium flex items-center justify-center gap-1.5"
+                            style={{ background:"rgba(42,64,96,0.5)", color:"var(--text-secondary)" }}>
+                            <Icon name="Download" size={13} fallback="Download" />Скачать
+                          </button>
+                          <button onClick={() => { navigator.clipboard?.writeText(qrModal.token); showToast("Токен скопирован"); }}
+                            className="py-2.5 rounded text-xs flex items-center justify-center gap-1.5"
+                            style={{ background:"rgba(42,64,96,0.4)", color:"var(--text-secondary)" }}>
+                            <Icon name="Copy" size={13} fallback="Copy" />Копировать
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <h2 className="font-heading font-semibold text-lg mb-2" style={{ color:"var(--text-primary)" }}>Управление QR-кодами</h2>
+              <p className="text-sm mb-6" style={{ color:"var(--text-secondary)" }}>
+                Генерация, привязка и отзыв QR-кодов доступа для пользователей системы
+              </p>
+
+              {/* Панель назначения QR */}
+              <div className="glass-card p-5 mb-6">
+                <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color:"var(--gold)" }}>
+                  Присвоить QR-код пользователю
+                </p>
+
+                {/* Выбор режима */}
+                <div className="flex rounded-lg p-1 mb-5" style={{ background:"rgba(42,64,96,0.3)", width:"fit-content" }}>
+                  {([
+                    { id: "auto",   label: "Автоматически", icon: "Zap" },
+                    { id: "camera", label: "Веб-камера",     icon: "Camera" },
+                    { id: "manual", label: "Вручную",        icon: "Pencil" },
+                  ] as const).map(m => (
+                    <button key={m.id} onClick={() => setAssignMode(m.id)}
+                      className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-all"
+                      style={{
+                        background: assignMode === m.id ? "rgba(200,149,42,0.15)" : "transparent",
+                        color: assignMode === m.id ? "var(--gold-light)" : "var(--text-secondary)",
+                        border: assignMode === m.id ? "1px solid rgba(200,149,42,0.3)" : "1px solid transparent",
+                      }}>
+                      <Icon name={m.icon} size={14} fallback="Circle" />
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Выбор пользователя (общий для всех режимов) */}
+                <div className="mb-4">
+                  <label className="block text-xs mb-1.5" style={{ color:"var(--text-secondary)" }}>Пользователь</label>
+                  <select className="w-full px-3 py-2.5 rounded text-sm outline-none max-w-md"
+                    style={{ background:"rgba(42,64,96,0.4)", border:"1px solid rgba(42,64,96,0.6)", color:"var(--text-primary)" }}
+                    value={scanTarget?.id ?? ""}
+                    onChange={e => {
+                      const u = qrUsers.find(u => u.id === Number(e.target.value));
+                      setScanTarget(u || null);
+                      setManualUserId(u?.id || null);
+                    }}>
+                    <option value="">— выберите пользователя —</option>
+                    {qrUsers.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name || u.email} {u.has_qr ? "✓ (есть QR)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Режим: автоматически */}
+                {assignMode === "auto" && (
+                  <div>
+                    <p className="text-xs mb-3" style={{ color:"var(--text-dim)" }}>
+                      Система сгенерирует уникальный защищённый токен и привяжет его к выбранному пользователю.
+                    </p>
+                    <button
+                      onClick={() => { if (!scanTarget) { showToast("Выберите пользователя", "err"); return; } generateQr(scanTarget.id, scanTarget.full_name || scanTarget.email, scanTarget.email); }}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded text-sm font-semibold"
+                      style={{ background:"linear-gradient(90deg, var(--gold), var(--gold-light))", color:"var(--navy-deep)" }}>
+                      <Icon name="Zap" size={16} fallback="Zap" />
+                      Сгенерировать QR автоматически
+                    </button>
+                  </div>
+                )}
+
+                {/* Режим: камера */}
+                {assignMode === "camera" && (
+                  <div>
+                    <p className="text-xs mb-4" style={{ color:"var(--text-dim)" }}>
+                      Поднесите готовый QR-код к камере — система считает его и привяжет к выбранному пользователю.
+                      Подходит для карточек сторонних систем или распечатанных QR.
+                    </p>
+                    {scanTarget ? (
+                      <div className="flex items-center gap-3 p-3 rounded-lg mb-4"
+                        style={{ background:"rgba(200,149,42,0.08)", border:"1px solid rgba(200,149,42,0.25)" }}>
+                        <Icon name="User" size={16} fallback="User" style={{ color:"var(--gold)" }} />
+                        <div>
+                          <p className="text-sm font-medium" style={{ color:"var(--text-primary)" }}>{scanTarget.full_name || scanTarget.email}</p>
+                          <p className="text-xs" style={{ color:"var(--text-dim)" }}>QR будет привязан к этому пользователю</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-lg mb-4" style={{ background:"rgba(192,57,43,0.08)", border:"1px solid rgba(192,57,43,0.2)" }}>
+                        <p className="text-xs" style={{ color:"#E74C3C" }}>Сначала выберите пользователя выше</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { if (!scanTarget) { showToast("Выберите пользователя", "err"); return; } setShowScanner(true); }}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded text-sm font-semibold"
+                      style={{ background: scanTarget ? "linear-gradient(90deg, var(--gold), var(--gold-light))" : "rgba(42,64,96,0.5)", color: scanTarget ? "var(--navy-deep)" : "var(--text-dim)" }}>
+                      <Icon name="Camera" size={16} fallback="Camera" />
+                      Открыть камеру и сканировать
+                    </button>
+                  </div>
+                )}
+
+                {/* Режим: вручную */}
+                {assignMode === "manual" && (
+                  <div>
+                    <p className="text-xs mb-4" style={{ color:"var(--text-dim)" }}>
+                      Введите токен QR-кода вручную. Используется для импорта кодов из внешних систем.
+                    </p>
+                    <div className="mb-3 max-w-md">
+                      <label className="block text-xs mb-1.5" style={{ color:"var(--text-secondary)" }}>Токен QR-кода</label>
+                      <input
+                        className="w-full px-3 py-2.5 rounded text-sm outline-none font-mono"
+                        style={{ background:"rgba(42,64,96,0.4)", border:"1px solid rgba(42,64,96,0.6)", color:"var(--text-primary)" }}
+                        placeholder="Введите строку токена..."
+                        value={manualToken}
+                        onChange={e => setManualToken(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!scanTarget) { showToast("Выберите пользователя", "err"); return; }
+                        if (!manualToken.trim()) { showToast("Введите токен", "err"); return; }
+                        assignExternalQr(scanTarget.id, manualToken.trim(), scanTarget.full_name || scanTarget.email, scanTarget.email);
+                      }}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded text-sm font-semibold"
+                      style={{ background:"linear-gradient(90deg, var(--gold), var(--gold-light))", color:"var(--navy-deep)" }}>
+                      <Icon name="Link" size={16} fallback="Link" />
+                      Привязать токен к пользователю
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Таблица пользователей с QR-статусами */}
+              <div className="glass-card overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom:"1px solid rgba(42,64,96,0.5)" }}>
+                  <p className="text-xs font-semibold uppercase tracking-widest" style={{ color:"var(--text-dim)" }}>
+                    QR-статус пользователей
+                  </p>
+                  <button onClick={loadQrUsers} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded"
+                    style={{ background:"rgba(42,64,96,0.4)", color:"var(--text-secondary)" }}>
+                    <Icon name="RefreshCw" size={12} fallback="Refresh" />Обновить
+                  </button>
+                </div>
+                {qrLoading ? (
+                  <div className="flex items-center gap-2 py-8 px-5" style={{ color:"var(--text-dim)" }}>
+                    <Icon name="Loader" size={16} fallback="Loader" />Загрузка...
+                  </div>
+                ) : (
+                  <table className="data-table w-full">
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign:"left" }}>Пользователь</th>
+                        <th style={{ textAlign:"left" }}>Роль</th>
+                        <th style={{ textAlign:"left" }}>QR-статус</th>
+                        <th style={{ textAlign:"left" }}>Последний вход</th>
+                        <th style={{ textAlign:"left" }}>Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {qrUsers.map(u => (
+                        <tr key={u.id}>
+                          <td>
+                            <div className="font-medium text-sm" style={{ color:"var(--text-primary)" }}>{u.full_name || "—"}</div>
+                            <div className="text-xs" style={{ color:"var(--text-dim)" }}>{u.email}</div>
+                          </td>
+                          <td>
+                            <span className="text-xs px-2 py-0.5 rounded"
+                              style={{ background: u.role === "admin" ? "rgba(200,149,42,0.15)" : "rgba(42,64,96,0.4)", color: u.role === "admin" ? "var(--gold-light)" : "var(--text-secondary)" }}>
+                              {u.role === "admin" ? "Администратор" : "Пользователь"}
+                            </span>
+                          </td>
+                          <td>
+                            {u.has_qr ? (
+                              <span className="flex items-center gap-1.5 text-xs" style={{ color:"#2ECC71" }}>
+                                <Icon name="QrCode" size={13} fallback="Qr" />
+                                QR активен
+                              </span>
+                            ) : (
+                              <span className="text-xs" style={{ color:"var(--text-dim)" }}>Нет QR-кода</span>
+                            )}
+                          </td>
+                          <td style={{ color:"var(--text-dim)", fontSize:"0.75rem" }}>
+                            {u.last_login_at ? new Date(u.last_login_at).toLocaleString("ru-RU") : "—"}
+                          </td>
+                          <td>
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                onClick={() => generateQr(u.id, u.full_name || u.email, u.email)}
+                                className="flex items-center gap-1 text-xs px-2 py-1 rounded"
+                                style={{ background:"rgba(200,149,42,0.1)", color:"var(--gold)" }}>
+                                <Icon name="Zap" size={11} fallback="Zap" />
+                                {u.has_qr ? "Обновить" : "Создать"}
+                              </button>
+                              <button
+                                onClick={() => { setScanTarget(u); setManualUserId(u.id); setAssignMode("camera"); setShowScanner(true); }}
+                                className="flex items-center gap-1 text-xs px-2 py-1 rounded"
+                                style={{ background:"rgba(42,64,96,0.5)", color:"var(--text-secondary)" }}>
+                                <Icon name="Camera" size={11} fallback="Camera" />
+                                Сканировать
+                              </button>
+                              {u.has_qr && (
+                                <button
+                                  onClick={() => setConfirm({ title:"Отозвать QR-код", message:`Отозвать QR-код пользователя ${u.full_name || u.email}? Вход по QR станет невозможен.`, action: () => revokeQr(u.id, u.full_name || u.email) })}
+                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded"
+                                  style={{ background:"rgba(192,57,43,0.1)", color:"#E74C3C" }}>
+                                  <Icon name="Trash2" size={11} fallback="Trash" />
+                                  Отозвать
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
           )}

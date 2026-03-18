@@ -255,6 +255,42 @@ def handler(event: dict, context) -> dict:
         cur.close(); conn.close()
         return resp(200, {"ok": True})
 
+    # POST /qr-assign — привязать внешний QR-токен к пользователю (только admin)
+    # Используется когда администратор сканирует или вводит вручную готовый QR
+    if action == "qr-assign":
+        session_id = (event.get("headers") or {}).get("X-Session-Id", "")
+        caller = get_session_user(conn, session_id)
+        if not caller or caller[3] != "admin":
+            cur.close(); conn.close()
+            return resp(403, {"error": "Только администратор может привязывать QR-коды"})
+        target_user_id = body.get("user_id")
+        qr_token = body.get("qr_token", "").strip()
+        if not target_user_id or not qr_token:
+            cur.close(); conn.close()
+            return resp(400, {"error": "user_id и qr_token обязательны"})
+        if len(qr_token) < 6:
+            cur.close(); conn.close()
+            return resp(400, {"error": "Токен слишком короткий (минимум 6 символов)"})
+        # Проверяем что токен не занят другим пользователем
+        cur.execute(
+            f"SELECT id FROM {SCHEMA}.sout_users WHERE qr_token = %s AND id != %s",
+            (qr_token, target_user_id)
+        )
+        if cur.fetchone():
+            cur.close(); conn.close()
+            return resp(409, {"error": "Этот QR-токен уже привязан к другому пользователю"})
+        cur.execute(
+            f"UPDATE {SCHEMA}.sout_users SET qr_token = %s WHERE id = %s RETURNING email, full_name",
+            (qr_token, target_user_id)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "Пользователь не найден"})
+        conn.commit()
+        cur.close(); conn.close()
+        return resp(200, {"ok": True, "email": row[0], "full_name": row[1], "qr_token": qr_token})
+
     # POST /change-password
     if action == "change-password":
         session_id = (event.get("headers") or {}).get("X-Session-Id", "")
