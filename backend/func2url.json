@@ -1,4 +1,6 @@
 {
+  "sout-admin": "https://functions.poehali.dev/2aa77a7f-e362-4571-90dd-33ce54ee2b76",
+  "sout-auth": "https://functions.poehali.dev/80c3c284-fc4d-4c76-892a-f2886eaed21a",
   "sout-process": "https://functions.poehali.dev/3413521a-f911-42ef-8699-ea97fc14c796",
   "sout-upload": "https://functions.poehali.dev/dc630666-fe78-49d2-b6db-278145860efa",
   "sout-export": "https://functions.poehali.dev/77a67f0a-c7b2-44db-8701-230a41e4c983",

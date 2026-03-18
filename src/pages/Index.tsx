@@ -2,6 +2,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import * as XLSX from "xlsx";
 
+interface IndexProps {
+  user: { id: number; email: string; full_name: string; role: string };
+  sessionId: string;
+  onLogout: () => void;
+  onAdmin?: () => void;
+}
+
 const API = {
   upload:  "https://functions.poehali.dev/dc630666-fe78-49d2-b6db-278145860efa",
   process: "https://functions.poehali.dev/3413521a-f911-42ef-8699-ea97fc14c796",
@@ -66,7 +73,7 @@ function toBase64(file: File): Promise<string> {
   });
 }
 
-export default function Index() {
+export default function Index({ user, onLogout, onAdmin }: IndexProps) {
   const [section, setSection]         = useState<Section>("upload");
   const [files, setFiles]             = useState<File[]>([]);
   const [isDragging, setIsDragging]   = useState(false);
@@ -368,8 +375,23 @@ export default function Index() {
                 <span>Пакет #{activeBatchId}</span>
               </div>
             )}
-            <div className="w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
-              style={{ background: "var(--gold)", color: "var(--navy-deep)" }}>А</div>
+            {onAdmin && (
+              <button onClick={onAdmin} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded"
+                style={{ background: "rgba(192,57,43,0.15)", color: "#E74C3C", border: "1px solid rgba(192,57,43,0.3)" }}>
+                <Icon name="ShieldAlert" size={13} fallback="Shield" />
+                Админ
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
+                style={{ background: "var(--gold)", color: "var(--navy-deep)" }}>
+                {user.full_name?.[0]?.toUpperCase() || "U"}
+              </div>
+              <button onClick={onLogout} className="text-xs px-2 py-1.5 rounded"
+                style={{ background: "rgba(42,64,96,0.4)", color: "var(--text-secondary)" }}>
+                <Icon name="LogOut" size={13} fallback="Logout" />
+              </button>
+            </div>
           </div>
         </header>
 

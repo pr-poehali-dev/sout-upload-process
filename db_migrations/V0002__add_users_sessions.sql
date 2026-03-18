@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS t_p19673764_sout_upload_process.sout_users (id SERIAL PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, full_name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT 'user', is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ NULL);
+CREATE TABLE IF NOT EXISTS t_p19673764_sout_upload_process.sout_sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES t_p19673764_sout_upload_process.sout_users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days');
+CREATE INDEX IF NOT EXISTS idx_sout_sessions_user_id ON t_p19673764_sout_upload_process.sout_sessions(user_id);
