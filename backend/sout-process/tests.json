@@ -1,0 +1,11 @@
+{
+  "tests": [
+    {
+      "name": "GET batch status - missing param",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

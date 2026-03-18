@@ -1,0 +1,11 @@
+{
+  "tests": [
+    {
+      "name": "GET export all",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

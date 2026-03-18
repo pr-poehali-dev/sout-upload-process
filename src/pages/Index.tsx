@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
+import * as XLSX from "xlsx";
 
 type Section =
   | "upload"
@@ -177,6 +178,49 @@ export default function Index() {
     if (bytes < 1024) return bytes + " Б";
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " КБ";
     return (bytes / 1048576).toFixed(1) + " МБ";
+  };
+
+  const exportToExcel = (type: "full" | "danger" | "safe") => {
+    const wb = XLSX.utils.book_new();
+
+    const dangerRows = dangerResults.map((r) => ({
+      "Организация": r.org,
+      "Подразделение": r.dept,
+      "ФИО работника": r.name,
+      "Должность (профессия)": r.position,
+      "Опасные факторы": r.factors.map((f) => `${f.code} ${f.name}`).join("; "),
+      "Расшифровка факторов": r.factors.map((f) => `[${f.code}] ${f.name}: ${f.desc}`).join(" | "),
+      "Дата проведения СОУТ": r.date,
+      "Класс условий труда": "3 — Вредные",
+    }));
+
+    const safeRows = safeResults.map((r) => ({
+      "Организация": r.org,
+      "Подразделение": r.dept,
+      "ФИО работника": r.name,
+      "Должность (профессия)": r.position,
+      "Дата проведения СОУТ": r.date,
+      "Класс условий труда": "2 — Допустимые",
+    }));
+
+    if (type === "full" || type === "danger") {
+      const wsDanger = XLSX.utils.json_to_sheet(dangerRows);
+      wsDanger["!cols"] = [30, 28, 28, 28, 35, 60, 18, 22].map((w) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, wsDanger, "Направление №1 — Опасные");
+    }
+    if (type === "full" || type === "safe") {
+      const wsSafe = XLSX.utils.json_to_sheet(safeRows);
+      wsSafe["!cols"] = [30, 28, 28, 28, 18, 22].map((w) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, wsSafe, "Направление №2 — Допустимые");
+    }
+
+    const date = new Date().toLocaleDateString("ru-RU").replace(/\./g, "-");
+    const names: Record<string, string> = {
+      full: `АВЕСТА_Реестр_СОУТ_${date}.xlsx`,
+      danger: `АВЕСТА_Направление1_Опасные_${date}.xlsx`,
+      safe: `АВЕСТА_Направление2_Допустимые_${date}.xlsx`,
+    };
+    XLSX.writeFile(wb, names[type]);
   };
 
   return (
@@ -542,7 +586,7 @@ export default function Index() {
                 <button
                   className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
                   style={{ background: "linear-gradient(90deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)" }}
-                  onClick={() => setSection("export")}
+                  onClick={() => exportToExcel("full")}
                 >
                   <Icon name="Download" size={15} fallback="Download" />
                   Экспорт Excel
@@ -684,7 +728,7 @@ export default function Index() {
                             <button
                               className="text-xs px-2 py-1 rounded"
                               style={{ background: "rgba(42,64,96,0.4)", color: "var(--text-secondary)" }}
-                              onClick={() => setSection("export")}
+                              onClick={() => exportToExcel("full")}
                             >
                               Excel
                             </button>
@@ -718,6 +762,7 @@ export default function Index() {
                     desc: "Все работники — оба направления на отдельных листах Excel с полной детализацией",
                     badge: "Рекомендуется",
                     badgeColor: "var(--gold)",
+                    exportType: "full" as const,
                   },
                   {
                     icon: "AlertTriangle",
@@ -725,6 +770,7 @@ export default function Index() {
                     desc: "Только работники с вредными/опасными условиями. Полная расшифровка каждого фактора по классам",
                     badge: `${dangerResults.length} записей`,
                     badgeColor: "#E74C3C",
+                    exportType: "danger" as const,
                   },
                   {
                     icon: "ShieldCheck",
@@ -732,6 +778,7 @@ export default function Index() {
                     desc: "Работники с допустимыми условиями труда (класс 1 и 2), без выявленных вредных факторов",
                     badge: `${safeResults.length} записей`,
                     badgeColor: "#2ECC71",
+                    exportType: "safe" as const,
                   },
                 ].map((opt) => (
                   <div key={opt.title} className="glass-card p-5 flex items-center gap-4">
@@ -756,6 +803,7 @@ export default function Index() {
                     <button
                       className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium flex-shrink-0"
                       style={{ background: "linear-gradient(90deg, var(--gold), var(--gold-light))", color: "var(--navy-deep)" }}
+                      onClick={() => exportToExcel(opt.exportType)}
                     >
                       <Icon name="Download" size={14} fallback="Download" />
                       Скачать
